@@ -1,0 +1,16 @@
+# Config / Secrets
+config/config.php
+.env
+
+# PHP / Composer
+vendor/
+composer.lock
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log
