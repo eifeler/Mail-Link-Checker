@@ -5,14 +5,18 @@ session_start();
 require __DIR__ . '/includes/csrf.php';
 require __DIR__ . '/includes/rate_limit.php';
 require __DIR__ . '/includes/vt_api.php';
+require __DIR__ . '/includes/heuristics.php';
+require __DIR__ . '/includes/safe_browsing.php';
 
 const MAX_LINKS = 25;
 
 $apiKey = '';
+$safeBrowsingKey = '';
 $configFile = __DIR__ . '/config/config.php';
 if (is_file($configFile)) {
     require $configFile;
     $apiKey = defined('VT_API_KEY') ? VT_API_KEY : '';
+    $safeBrowsingKey = defined('SAFE_BROWSING_API_KEY') ? SAFE_BROWSING_API_KEY : '';
 }
 
 // ---------------------------------------------------------------------
@@ -28,12 +32,29 @@ if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQU
         exit;
     }
 
+    $action = $_POST['action'] ?? '';
+
+    // Safe Browsing braucht keinen VT-Key und keinen VT-Rate-Limit-Slot -
+    // eigene, viel großzügigere Quota (siehe includes/safe_browsing.php).
+    if ($action === 'check_safe_browsing') {
+        if (empty($safeBrowsingKey)) {
+            echo json_encode(['status' => 'error', 'error' => 'Kein Safe-Browsing-API-Schlüssel konfiguriert.']);
+            exit;
+        }
+        $sessionLinks = $_SESSION['links'] ?? [];
+        $sb = safe_browsing_check($sessionLinks, $safeBrowsingKey);
+        if (!$sb['ok']) {
+            echo json_encode(['status' => 'error', 'error' => $sb['error']]);
+            exit;
+        }
+        echo json_encode(['status' => 'completed', 'results' => $sb['results']]);
+        exit;
+    }
+
     if (empty($apiKey)) {
         echo json_encode(['status' => 'error', 'error' => 'Kein VirusTotal API-Schlüssel konfiguriert (config/config.php).']);
         exit;
     }
-
-    $action = $_POST['action'] ?? '';
 
     if ($action === 'submit_url') {
         $url = (string)($_POST['url'] ?? '');
@@ -72,6 +93,7 @@ if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQU
 // Normale Formulare (Extrahieren / Zurücksetzen)
 // ---------------------------------------------------------------------
 $links = $_SESSION['links'] ?? [];
+$mismatches = $_SESSION['mismatches'] ?? [];
 $emailContent = '';
 $noLinks = false;
 $linksCapped = false;
@@ -92,6 +114,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $emailContentRaw = (string)($_POST['email_content'] ?? '');
             $emailContent = plain_text_preview($emailContentRaw); // nur fürs Redisplay
             $found = extract_links($emailContentRaw);
+            $mismatches = detect_link_mismatches($emailContentRaw);
+            $_SESSION['mismatches'] = $mismatches;
 
             if (count($found) > MAX_LINKS) {
                 $linksCapped = true;
@@ -194,7 +218,7 @@ $token = csrf_token();
             </nav>
         </div>
         <p class="text-sm text-ink/60 mt-2">
-            Verdächtigen E-Mail-Inhalt einfügen, Links extrahieren, gegen VirusTotal prüfen. Alle Angaben ohne Gewähr.
+            Verdächtigen E-Mail-Inhalt einfügen, Links extrahieren, gegen VirusTotal &amp; Google Safe Browsing prüfen. Alle Angaben ohne Gewähr.
         </p>
     </header>
 
@@ -208,6 +232,20 @@ $token = csrf_token();
     <?php if ($formError): ?>
         <div class="mb-6 border border-danger/30 bg-danger/5 text-danger text-sm rounded-md px-4 py-3">
             <?php echo htmlspecialchars($formError); ?>
+        </div>
+    <?php endif; ?>
+
+    <?php if (!empty($mismatches)): ?>
+        <div class="mb-6 border border-danger/40 bg-danger/5 rounded-md px-4 py-3">
+            <p class="text-sm font-semibold text-danger mb-2">⚠ Link-Text stimmt nicht mit dem Ziel überein (<?php echo count($mismatches); ?>)</p>
+            <ul class="text-sm text-ink/80 space-y-1.5">
+                <?php foreach ($mismatches as $m): ?>
+                <li class="font-mono text-xs break-all">
+                    Text zeigt <strong>„<?php echo htmlspecialchars($m['visible_text']); ?>“</strong>,
+                    Link führt aber zu <strong class="text-danger"><?php echo htmlspecialchars($m['href']); ?></strong>
+                </li>
+                <?php endforeach; ?>
+            </ul>
         </div>
     <?php endif; ?>
 
@@ -275,15 +313,28 @@ $token = csrf_token();
                 $urlEnc = urlencode($l);
                 $kasperskyUrl = "https://opentip.kaspersky.com/$urlEnc/";
                 $googleSbUrl = "https://transparencyreport.google.com/safe-browsing/search?url=$urlEnc";
+                $riskFlags = url_risk_flags($l);
             ?>
             <li class="bg-white border border-hairline rounded-md p-3">
                 <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
                     <span class="font-mono text-sm break-all flex-1"><?php echo htmlspecialchars($l); ?></span>
-                    <span class="verdict-badge bg-hairline text-ink/50 border-hairline" data-badge="<?php echo $i; ?>">Ungeprüft</span>
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                        <?php if (!empty($safeBrowsingKey)): ?>
+                        <span class="verdict-badge bg-hairline text-ink/50 border-hairline" data-sb-badge="<?php echo $i; ?>">SB: Prüfe …</span>
+                        <?php endif; ?>
+                        <span class="verdict-badge bg-hairline text-ink/50 border-hairline" data-badge="<?php echo $i; ?>">VT: Ungeprüft</span>
+                    </div>
                 </div>
+                <?php if (!empty($riskFlags)): ?>
+                <div class="flex flex-wrap gap-1.5 mt-2">
+                    <?php foreach ($riskFlags as $flag): ?>
+                    <span class="text-xs text-warn border border-warn/30 bg-warn/5 rounded px-2 py-0.5">⚠ <?php echo htmlspecialchars($flag); ?></span>
+                    <?php endforeach; ?>
+                </div>
+                <?php endif; ?>
                 <div class="flex flex-wrap gap-2 mt-2 text-xs">
                     <button type="button" class="copy-btn px-2.5 py-1 border border-hairline rounded hover:bg-paper transition" data-url="<?php echo htmlspecialchars($l); ?>">Kopieren</button>
-                    <button type="button" class="check-btn px-2.5 py-1 bg-accent/10 text-accent border border-accent/30 rounded hover:bg-accent/20 transition" data-index="<?php echo $i; ?>" data-url="<?php echo htmlspecialchars($l); ?>" <?php echo empty($apiKey) ? 'disabled' : ''; ?>>Prüfen</button>
+                    <button type="button" class="check-btn px-2.5 py-1 bg-accent/10 text-accent border border-accent/30 rounded hover:bg-accent/20 transition" data-index="<?php echo $i; ?>" data-url="<?php echo htmlspecialchars($l); ?>" <?php echo empty($apiKey) ? 'disabled' : ''; ?>>VT prüfen</button>
                     <a href="<?php echo htmlspecialchars($vtGui); ?>" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 border border-hairline rounded hover:bg-paper transition">VT-Web</a>
                     <a href="<?php echo htmlspecialchars($urlvoidUrl); ?>" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 border border-hairline rounded hover:bg-paper transition">URLvoid</a>
                     <a href="<?php echo htmlspecialchars($kasperskyUrl); ?>" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 border border-hairline rounded hover:bg-paper transition">Kaspersky</a>
@@ -320,6 +371,7 @@ $token = csrf_token();
 <script>
     window.CSRF_TOKEN = <?php echo json_encode($token); ?>;
     window.API_KEY_MISSING = <?php echo empty($apiKey) ? 'true' : 'false'; ?>;
+    window.SAFE_BROWSING_ENABLED = <?php echo empty($safeBrowsingKey) ? 'false' : 'true'; ?>;
 </script>
 <script src="assets/app.js"></script>
 </body>

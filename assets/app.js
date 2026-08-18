@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     const CSRF_TOKEN = window.CSRF_TOKEN || '';
     const API_KEY_MISSING = window.API_KEY_MISSING === true;
+    const SAFE_BROWSING_ENABLED = window.SAFE_BROWSING_ENABLED === true;
 
     const linksDataEl = document.getElementById('linksData');
     const links = linksDataEl ? JSON.parse(linksDataEl.value || '[]') : [];
@@ -164,9 +165,46 @@ document.addEventListener('DOMContentLoaded', () => {
     function setBadgePending(index) {
         const badge = document.querySelector(`[data-badge="${index}"]`);
         if (badge) {
-            badge.textContent = 'Prüfe …';
+            badge.textContent = 'VT: Prüfe …';
             badge.className = 'verdict-badge bg-hairline text-ink/60 border-hairline';
         }
+    }
+
+    /**
+     * Safe Browsing: EIN Request für ALLE Links (Batch-Endpoint), läuft
+     * automatisch beim Laden - synchron, kein Polling, eigenes Kontingent,
+     * daher unabhängig vom VT-Zeit-Gate.
+     */
+    async function runSafeBrowsingCheck() {
+        if (!SAFE_BROWSING_ENABLED || links.length === 0) return;
+
+        const res = await callApi('check_safe_browsing', {});
+        if (res.status === 'error') {
+            document.querySelectorAll('[data-sb-badge]').forEach((el) => {
+                el.textContent = 'SB: Fehler';
+                el.className = 'verdict-badge bg-danger/10 text-danger border-danger/30';
+                el.title = res.error || '';
+            });
+            return;
+        }
+
+        links.forEach((url, i) => {
+            const badge = document.querySelector(`[data-sb-badge="${i}"]`);
+            if (!badge) return;
+            const entry = (res.results || {})[url];
+            if (!entry) {
+                badge.textContent = 'SB: n/a';
+                badge.className = 'verdict-badge bg-hairline text-ink/40 border-hairline';
+                return;
+            }
+            if (entry.threat) {
+                badge.textContent = `SB: Bedrohung (${entry.types.join(', ')})`;
+                badge.className = 'verdict-badge bg-danger/10 text-danger border-danger/30';
+            } else {
+                badge.textContent = 'SB: Sicher';
+                badge.className = 'verdict-badge bg-accent/10 text-accent border-accent/30';
+            }
+        });
     }
 
     async function checkOne(index, url) {
@@ -236,4 +274,6 @@ document.addEventListener('DOMContentLoaded', () => {
             setTimeout(() => { if (progressBar) progressBar.classList.add('hidden'); }, 2000);
         });
     }
+
+    runSafeBrowsingCheck();
 });
