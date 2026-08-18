@@ -14,6 +14,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+    // Überträgt das rohe HTML des contenteditable-Editors ins Formularfeld.
+    // Wichtig: innerHTML (nicht innerText!) - sonst gehen Links verloren,
+    // die nur als href hinter einem Text wie "Hier klicken" stecken.
+    window.prepareContent = function () {
+        const editor = document.getElementById('editor');
+        const input = document.getElementById('email_content_input');
+        if (editor && input) input.value = editor.innerHTML;
+    };
+
     function escapeHtml(text) {
         const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
         return String(text).replace(/[&<>"']/g, (m) => map[m]);

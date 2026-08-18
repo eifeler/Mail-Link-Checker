@@ -2,12 +2,21 @@
 declare(strict_types=1);
 
 /**
- * Extrahiert alle eindeutigen, validen http(s)-Links aus einem Text.
+ * Extrahiert alle eindeutigen, validen http(s)-Links aus dem rohen,
+ * eingefügten HTML (nicht nur aus sichtbarem Text!).
+ *
+ * Wichtig: Bei eingefügten HTML-Mails steckt der eigentliche Link oft nur
+ * im href-Attribut ("Hier klicken" -> http://evil.example), nicht im
+ * sichtbaren Text. Deshalb wird hier bewusst über den rohen HTML-String
+ * gescannt (Tags/Attribute inklusive) statt nur über den sichtbaren Text -
+ * die URL in href="..." landet dabei ganz einfach als Teilstring im Fund.
  *
  * @return string[]
  */
-function extract_links(string $text): array
+function extract_links(string $html): array
 {
+    $text = html_entity_decode($html, ENT_QUOTES | ENT_HTML5);
+
     preg_match_all('/https?:\/\/[^\s"<>()]+/i', $text, $matches);
     $candidates = $matches[0] ?? [];
 
@@ -36,6 +45,19 @@ function extract_links(string $text): array
     }
 
     return array_values(array_unique($finalLinks));
+}
+
+/**
+ * Reine Text-Vorschau des eingefügten Inhalts fürs Redisplay im Editor.
+ * Absichtlich NIE das rohe HTML zurückgeben/anzeigen (XSS-Schutz) - hier
+ * wird nur der lesbare Text gebraucht, die Link-Extraktion selbst läuft
+ * unabhängig davon auf dem rohen HTML in extract_links().
+ */
+function plain_text_preview(string $html): string
+{
+    $text = html_entity_decode($html, ENT_QUOTES | ENT_HTML5);
+    $text = strip_tags($text);
+    return trim($text);
 }
 
 function vt_url_id(string $url): string

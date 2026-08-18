@@ -89,8 +89,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!csrf_verify($_POST['csrf_token'] ?? null)) {
             $formError = 'Ungültiges Sicherheits-Token. Bitte Text erneut absenden.';
         } else {
-            $emailContent = (string)($_POST['email_content'] ?? '');
-            $found = extract_links($emailContent);
+            $emailContentRaw = (string)($_POST['email_content'] ?? '');
+            $emailContent = plain_text_preview($emailContentRaw); // nur fürs Redisplay
+            $found = extract_links($emailContentRaw);
 
             if (count($found) > MAX_LINKS) {
                 $linksCapped = true;
@@ -146,6 +147,12 @@ $token = csrf_token();
     .step { position: relative; }
     .step-done .step-dot { background-color: #1D4E45; border-color: #1D4E45; }
     .step-done .step-label { color: #1C2321; }
+    .placeholder-text:empty::before {
+        content: attr(data-placeholder);
+        color: rgba(28,35,33,0.35);
+        pointer-events: none;
+        display: block;
+    }
     .verdict-badge {
         display: inline-block;
         padding: 0.15rem 0.6rem;
@@ -206,16 +213,16 @@ $token = csrf_token();
 
     <!-- Eingabe -->
     <section class="bg-white border border-hairline rounded-lg p-5 sm:p-6 shadow-sm">
-        <form method="post" action="">
+        <form method="post" action="" onsubmit="prepareContent()">
             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($token); ?>">
+            <input type="hidden" name="email_content" id="email_content_input">
             <label for="editor" class="block text-sm font-medium mb-2 text-ink/80">E-Mail-Inhalt</label>
-            <textarea
+            <div
                 id="editor"
-                name="email_content"
-                rows="10"
-                placeholder="Hier den E-Mail-Text einfügen …"
-                class="w-full border border-hairline rounded-md p-4 font-mono text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition"
-            ><?php echo htmlspecialchars($emailContent); ?></textarea>
+                contenteditable="true"
+                data-placeholder="Hier E-Mail-Inhalt einfügen (Strg+V) – HTML-Formatierung bleibt erhalten, damit auch versteckte Links in Buttons/Texten gefunden werden …"
+                class="placeholder-text w-full h-72 border border-hairline rounded-md p-4 font-mono text-sm leading-relaxed overflow-y-auto focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition"
+            ><?php echo htmlspecialchars($emailContent); ?></div>
             <div class="mt-4 flex items-center gap-3">
                 <button type="submit" name="extract"
                     class="px-5 py-2.5 bg-accent text-white text-sm font-medium rounded-md hover:bg-accent/90 focus:outline-none focus:ring-2 focus:ring-accent/40 transition">
