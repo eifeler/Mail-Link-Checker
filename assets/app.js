@@ -14,17 +14,56 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-    // Globales Zeit-Gate für ALLE VT-Aufrufe (Submit + Poll, egal ob
-    // Einzel- oder Sammel-Prüfung). VirusTotal Free-Tier: 4 Requests/Min.
-    // Statt das Limit zu reißen und dann Fehler zu zeigen, wird hier
-    // proaktiv Abstand gehalten - so tritt der Fehler unter normaler
-    // Nutzung gar nicht erst auf.
-    const MIN_GAP_MS = 15500; // knapp über 60s/4 = 15s Sicherheitsabstand
-    let lastApiCallAt = 0;
+    // Zeit-Gate für ALLE VT-Aufrufe (Submit + Poll, Einzel- wie Sammel-
+    // Prüfung), transparent mit Live-Zähler statt pauschaler Bremse:
+    //  - Mindestabstand 5s zwischen zwei Anfragen
+    //  - rollierendes 60s-Fenster: max. 4 Anfragen (VT Free-Tier-Limit)
+    // Ist das Fenster ausgeschöpft, wird gewartet bis der älteste Eintrag
+    // aus dem Fenster fällt - der Rest-Countdown wird live angezeigt.
+    const MIN_GAP_MS = 5000;
+    const MAX_PER_WINDOW = 4;
+    const WINDOW_MS = 60000;
+    let callTimestamps = [];
+    const rateStatusEl = document.getElementById('rateLimitStatus');
+
+    function renderRateStatus() {
+        if (!rateStatusEl) return;
+        const now = Date.now();
+        callTimestamps = callTimestamps.filter((t) => now - t < WINDOW_MS);
+        const remaining = Math.max(0, MAX_PER_WINDOW - callTimestamps.length);
+        if (remaining > 0) {
+            rateStatusEl.textContent = `VirusTotal-Anfragen verfügbar: ${remaining}/${MAX_PER_WINDOW}`;
+            rateStatusEl.classList.remove('text-warn');
+        } else {
+            const waitS = Math.max(0, Math.ceil((WINDOW_MS - (now - callTimestamps[0])) / 1000));
+            rateStatusEl.textContent = `VirusTotal-Limit erreicht – nächste Anfrage in ${waitS}s`;
+            rateStatusEl.classList.add('text-warn');
+        }
+    }
+    setInterval(renderRateStatus, 1000);
+    renderRateStatus();
+
     async function throttledApiCall(action, params) {
-        const wait = MIN_GAP_MS - (Date.now() - lastApiCallAt);
-        if (wait > 0) await sleep(wait);
-        lastApiCallAt = Date.now();
+        while (true) {
+            const now = Date.now();
+            callTimestamps = callTimestamps.filter((t) => now - t < WINDOW_MS);
+
+            let waitMs = 0;
+            if (callTimestamps.length > 0) {
+                const sinceLast = now - callTimestamps[callTimestamps.length - 1];
+                if (sinceLast < MIN_GAP_MS) waitMs = Math.max(waitMs, MIN_GAP_MS - sinceLast);
+            }
+            if (callTimestamps.length >= MAX_PER_WINDOW) {
+                waitMs = Math.max(waitMs, WINDOW_MS - (now - callTimestamps[0]));
+            }
+
+            if (waitMs <= 0) break;
+            renderRateStatus();
+            await sleep(Math.min(waitMs, 1000));
+        }
+
+        callTimestamps.push(Date.now());
+        renderRateStatus();
         return callApi(action, params);
     }
 
@@ -65,7 +104,7 @@ document.addEventListener('DOMContentLoaded', () => {
      * hier wird nicht zusätzlich gewartet, um das Limit nicht doppelt
      * "aufzubrauchen".
      */
-    async function checkLink(url, { maxPolls = 24 } = {}) {
+    async function checkLink(url, { maxPolls = 30 } = {}) {
         const first = await throttledApiCall('submit_url', { url });
         if (first.status !== 'pending') return first;
 
