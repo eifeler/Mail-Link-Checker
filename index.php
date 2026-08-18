@@ -260,10 +260,11 @@ $token = csrf_token();
             </div>
         </div>
 
-        <div id="progressBar" class="hidden w-full bg-hairline rounded-full h-2 mb-4 relative overflow-hidden">
+        <div id="progressBar" class="hidden w-full bg-hairline rounded-full h-2 mb-1 relative overflow-hidden">
             <div id="progressFill" class="bg-accent h-2 rounded-full transition-all duration-300" style="width:0%"></div>
         </div>
-        <p id="progressText" class="text-xs text-ink/50 mb-3"></p>
+        <p id="progressText" class="text-xs text-ink/50 mb-1"></p>
+        <p class="text-xs text-ink/40 mb-3">VirusTotal erlaubt nur 4 Anfragen/Minute – die Prüfung läuft daher bewusst gedrosselt, ca. 15s pro Schritt.</p>
 
         <ul class="space-y-2">
             <?php foreach ($links as $i => $l):

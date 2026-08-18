@@ -2,6 +2,57 @@
 declare(strict_types=1);
 
 /**
+ * Löst verschachtelte Redirect-/Tracking-Wrapper rekursiv bis zur
+ * tatsächlichen Zieladresse auf. Deckt zwei verbreitete Muster ab:
+ *  - Ziel als Query-Parameter (z.B. Gmail: google.com/url?q=<ziel>&...)
+ *  - Ziel urlencodiert im Pfad (typischer Klick-Tracker: /CL0/<ziel>/...)
+ * Tiefenbegrenzung verhindert Endlosschleifen bei kaputten/zirkulären Links.
+ */
+function unwrap_redirect(string $url, int $depth = 0): string
+{
+    if ($depth >= 5) {
+        return $url;
+    }
+
+    $parts = parse_url($url);
+
+    if (!empty($parts['query'])) {
+        parse_str($parts['query'], $vars);
+        foreach ($vars as $value) {
+            if (is_string($value)
+                && preg_match('/^https?:\/\//i', $value)
+                && filter_var($value, FILTER_VALIDATE_URL)
+                && $value !== $url
+            ) {
+                return unwrap_redirect($value, $depth + 1);
+            }
+        }
+    }
+
+    if (!empty($parts['path'])) {
+        $decodedPath = rawurldecode($parts['path']);
+        if (preg_match('/https?:\/\/[^\s"\'<>]+/i', $decodedPath, $m)) {
+            $inner = rtrim($m[0], ".,;:!?\"'<>");
+            if ($inner !== $url && filter_var($inner, FILTER_VALIDATE_URL)) {
+                return unwrap_redirect($inner, $depth + 1);
+            }
+        }
+    }
+
+    return $url;
+}
+
+/**
+ * Bild-URLs (z.B. Gmails eigene Emoji-Icons, Tracking-Pixel) sind für
+ * einen Link-Checker irrelevant - niemand "klickt" darauf.
+ */
+function is_image_url(string $url): bool
+{
+    $path = parse_url($url, PHP_URL_PATH) ?? '';
+    return (bool)preg_match('/\.(png|jpe?g|gif|webp|svg|ico|bmp)$/i', $path);
+}
+
+/**
  * Extrahiert alle eindeutigen, validen http(s)-Links aus dem rohen,
  * eingefügten HTML (nicht nur aus sichtbarem Text!).
  *
@@ -10,6 +61,11 @@ declare(strict_types=1);
  * sichtbaren Text. Deshalb wird hier bewusst über den rohen HTML-String
  * gescannt (Tags/Attribute inklusive) statt nur über den sichtbaren Text -
  * die URL in href="..." landet dabei ganz einfach als Teilstring im Fund.
+ *
+ * Gefundene Kandidaten werden zusätzlich durch unwrap_redirect() bis zur
+ * tatsächlichen Zieladresse aufgelöst (Gmail-/Tracking-Wrapper entfernt,
+ * verschachtelte Wrapper werden dadurch automatisch dedupliziert) und
+ * Bild-URLs herausgefiltert (siehe is_image_url()).
  *
  * @return string[]
  */
@@ -26,22 +82,14 @@ function extract_links(string $html): array
         if (!filter_var($link, FILTER_VALIDATE_URL)) {
             continue;
         }
-        $finalLinks[] = $link;
 
-        // Redirect-/Tracking-Links (?url=..., ?u=...) enthalten oft das
-        // eigentliche Ziel als Parameter - das ebenfalls mit aufnehmen.
-        $parts = parse_url($link);
-        if (!empty($parts['query'])) {
-            parse_str($parts['query'], $queryVars);
-            foreach ($queryVars as $value) {
-                if (is_string($value)
-                    && preg_match('/^https?:\/\//i', $value)
-                    && filter_var($value, FILTER_VALIDATE_URL)
-                ) {
-                    $finalLinks[] = $value;
-                }
-            }
+        $link = unwrap_redirect($link);
+
+        if (is_image_url($link)) {
+            continue;
         }
+
+        $finalLinks[] = $link;
     }
 
     return array_values(array_unique($finalLinks));

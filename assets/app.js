@@ -14,6 +14,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+    // Globales Zeit-Gate für ALLE VT-Aufrufe (Submit + Poll, egal ob
+    // Einzel- oder Sammel-Prüfung). VirusTotal Free-Tier: 4 Requests/Min.
+    // Statt das Limit zu reißen und dann Fehler zu zeigen, wird hier
+    // proaktiv Abstand gehalten - so tritt der Fehler unter normaler
+    // Nutzung gar nicht erst auf.
+    const MIN_GAP_MS = 15500; // knapp über 60s/4 = 15s Sicherheitsabstand
+    let lastApiCallAt = 0;
+    async function throttledApiCall(action, params) {
+        const wait = MIN_GAP_MS - (Date.now() - lastApiCallAt);
+        if (wait > 0) await sleep(wait);
+        lastApiCallAt = Date.now();
+        return callApi(action, params);
+    }
+
     // Überträgt das rohe HTML des contenteditable-Editors ins Formularfeld.
     // Wichtig: innerHTML (nicht innerText!) - sonst gehen Links verloren,
     // die nur als href hinter einem Text wie "Hier klicken" stecken.
@@ -46,18 +60,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /**
-     * Prüft einen Link vollständig: einreichen, dann in kurzen Abständen
-     * pollen bis "completed". Jeder einzelne Request ist kurz (<15s) -
-     * es blockiert nie ein einzelner PHP-Prozess über Minuten.
+     * Prüft einen Link vollständig: einreichen, dann pollen bis
+     * "completed". Das Tempo bestimmt throttledApiCall() (VT-Limit) -
+     * hier wird nicht zusätzlich gewartet, um das Limit nicht doppelt
+     * "aufzubrauchen".
      */
-    async function checkLink(url, { maxPolls = 20, pollDelay = 4000 } = {}) {
-        const first = await callApi('submit_url', { url });
+    async function checkLink(url, { maxPolls = 24 } = {}) {
+        const first = await throttledApiCall('submit_url', { url });
         if (first.status !== 'pending') return first;
 
         const analysisId = first.analysis_id;
         for (let i = 0; i < maxPolls; i++) {
-            await sleep(pollDelay);
-            const res = await callApi('check_status', { analysis_id: analysisId });
+            const res = await throttledApiCall('check_status', { analysis_id: analysisId });
             if (res.status === 'completed' || res.status === 'error') return res;
         }
         return { status: 'error', error: 'Zeitüberschreitung – VirusTotal hat nicht rechtzeitig geantwortet.' };
