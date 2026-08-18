@@ -103,18 +103,23 @@ document.addEventListener('DOMContentLoaded', () => {
      * Prüft einen Link vollständig: einreichen, dann pollen bis
      * "completed". Das Tempo bestimmt throttledApiCall() (VT-Limit) -
      * hier wird nicht zusätzlich gewartet, um das Limit nicht doppelt
-     * "aufzubrauchen".
+     * "aufzubrauchen". onAttempt(n, max) informiert die UI über jeden
+     * einzelnen Versuch, damit sichtbar bleibt, dass es weiterläuft und
+     * nicht hängt (bei 4 Anfragen/Min. kann das bei einem einzelnen Link
+     * durchaus 1-3 Minuten dauern, wenn VT selbst lange braucht).
      */
-    async function checkLink(url, { maxPolls = 30 } = {}) {
+    async function checkLink(url, { maxPolls = 20, onAttempt } = {}) {
+        if (onAttempt) onAttempt(1, maxPolls + 1);
         const first = await throttledApiCall('submit_url', { url });
         if (first.status !== 'pending') return first;
 
         const analysisId = first.analysis_id;
         for (let i = 0; i < maxPolls; i++) {
+            if (onAttempt) onAttempt(i + 2, maxPolls + 1);
             const res = await throttledApiCall('check_status', { analysis_id: analysisId });
             if (res.status === 'completed' || res.status === 'error') return res;
         }
-        return { status: 'error', error: 'Zeitüberschreitung – VirusTotal hat nicht rechtzeitig geantwortet.' };
+        return { status: 'error', error: 'Zeitüberschreitung – VirusTotal hat auch nach mehreren Minuten nicht geantwortet.' };
     }
 
     function verdictFromStats(stats) {
@@ -162,10 +167,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function setBadgePending(index) {
+    function setBadgePending(index, attempt, max) {
         const badge = document.querySelector(`[data-badge="${index}"]`);
         if (badge) {
-            badge.textContent = 'VT: Prüfe …';
+            badge.textContent = attempt ? `VT: Prüfe … (${attempt}/${max})` : 'VT: Prüfe …';
             badge.className = 'verdict-badge bg-hairline text-ink/60 border-hairline';
         }
     }
@@ -207,9 +212,18 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    async function checkOne(index, url) {
+    let anyCheckRunning = false;
+
+    function setAllCheckButtonsDisabled(disabled) {
+        if (checkAllBtn) checkAllBtn.disabled = disabled || API_KEY_MISSING || links.length === 0;
+        document.querySelectorAll('.check-btn').forEach((el) => {
+            el.disabled = disabled || API_KEY_MISSING;
+        });
+    }
+
+    async function checkOne(index, url, onAttempt) {
         setBadgePending(index);
-        const report = await checkLink(url);
+        const report = await checkLink(url, { onAttempt: (a, m) => setBadgePending(index, a, m) });
         renderResult(index, report);
         if (stepChecked) stepChecked.classList.add('step-done');
         return report;
@@ -218,10 +232,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Einzelner "Prüfen"-Button pro Link
     document.body.addEventListener('click', async (event) => {
         const btn = event.target.closest('.check-btn');
-        if (btn) {
-            btn.disabled = true;
+        if (btn && !anyCheckRunning) {
+            anyCheckRunning = true;
+            setAllCheckButtonsDisabled(true);
             await checkOne(Number(btn.dataset.index), btn.dataset.url);
-            btn.disabled = false;
+            anyCheckRunning = false;
+            setAllCheckButtonsDisabled(false);
         }
 
         const copyBtn = event.target.closest('.copy-btn');
@@ -254,9 +270,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // "Alle Links mit VT prüfen" - sequentiell, respektiert das 4/Min-Limit
     if (checkAllBtn) {
         checkAllBtn.addEventListener('click', async () => {
-            if (API_KEY_MISSING || links.length === 0) return;
+            if (API_KEY_MISSING || links.length === 0 || anyCheckRunning) return;
 
-            checkAllBtn.disabled = true;
+            anyCheckRunning = true;
+            setAllCheckButtonsDisabled(true);
             checkAllBtn.textContent = 'Prüfung läuft …';
             if (progressBar) progressBar.classList.remove('hidden');
 
@@ -269,7 +286,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (progressText) progressText.textContent = `${pct}% (${done}/${links.length})`;
             }
 
-            checkAllBtn.disabled = false;
+            anyCheckRunning = false;
+            setAllCheckButtonsDisabled(false);
             checkAllBtn.textContent = 'Alle Links mit VirusTotal prüfen';
             setTimeout(() => { if (progressBar) progressBar.classList.add('hidden'); }, 2000);
         });

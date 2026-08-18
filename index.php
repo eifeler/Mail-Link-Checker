@@ -302,7 +302,8 @@ $token = csrf_token();
             <div id="progressFill" class="bg-accent h-2 rounded-full transition-all duration-300" style="width:0%"></div>
         </div>
         <p id="progressText" class="text-xs text-ink/50 mb-1"></p>
-        <p id="rateLimitStatus" class="text-xs text-ink/40 mb-3"></p>
+        <p id="rateLimitStatus" class="text-xs text-ink/40 mb-1"></p>
+        <p class="text-xs text-ink/40 mb-3">Bei wenigen Links kann eine einzelne Prüfung wegen des VirusTotal-Limits real 1-3 Minuten dauern – der Badge-Text zeigt den laufenden Versuch (z. B. "3/21"), das läuft nicht fest.</p>
 
         <ul class="space-y-2">
             <?php foreach ($links as $i => $l):
