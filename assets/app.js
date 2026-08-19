@@ -70,7 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (report.status === 'submitted') {
-            badge.textContent = 'VT: Eingereicht – in ~1 Min. erneut prüfen';
+            badge.textContent = 'VT: Eingereicht …';
             badge.className = 'verdict-badge bg-blue-500/10 text-blue-700 border-blue-500/30';
             return;
         }
@@ -142,6 +142,50 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     let anyCheckRunning = false;
+    const pendingRetries = {}; // index -> {timeoutId, intervalId}
+
+    function clearPendingRetry(index) {
+        const p = pendingRetries[index];
+        if (p) {
+            clearTimeout(p.timeoutId);
+            clearInterval(p.intervalId);
+            delete pendingRetries[index];
+        }
+    }
+
+    /**
+     * EIN automatischer Rückruf nach 60s - technisch identisch zu "Nutzer
+     * klickt manuell nochmal", nur automatisiert. Bewusst kein wiederholtes
+     * Polling: falls VT dann immer noch nicht fertig ist, bleibt es bei
+     * "Eingereicht" und der Nutzer klickt bei Bedarf selbst nochmal -
+     * sonst wären wir wieder bei der Komplexität, die wir rausgeworfen haben.
+     */
+    function scheduleAutoRetry(index, url) {
+        clearPendingRetry(index);
+        const RETRY_MS = 60000;
+        const startedAt = Date.now();
+        const badge = document.querySelector(`[data-badge="${index}"]`);
+
+        const tick = () => {
+            if (!badge) return;
+            const remaining = Math.max(0, Math.ceil((RETRY_MS - (Date.now() - startedAt)) / 1000));
+            badge.textContent = `VT: Eingereicht – erneute Prüfung in ${remaining}s`;
+        };
+        tick();
+        const intervalId = setInterval(tick, 1000);
+
+        const timeoutId = setTimeout(async () => {
+            clearPendingRetry(index);
+            if (anyCheckRunning) return; // andere Prüfung läuft - Nutzer kann jederzeit manuell klicken
+            anyCheckRunning = true;
+            setAllCheckButtonsDisabled(true);
+            await checkOne(index, url, true);
+            anyCheckRunning = false;
+            setAllCheckButtonsDisabled(false);
+        }, RETRY_MS);
+
+        pendingRetries[index] = { timeoutId, intervalId };
+    }
 
     function setAllCheckButtonsDisabled(disabled) {
         if (checkAllBtn) checkAllBtn.disabled = disabled || API_KEY_MISSING || links.length === 0;
@@ -151,12 +195,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Ein Klick = ein VT-Aufruf. Kein Polling, kein Warten auf ein
-    // "fertiges" Ergebnis - bei neuen Links kommt "Eingereicht", fertig.
-    async function checkOne(index, url) {
+    // "fertiges" Ergebnis - bei neuen Links kommt "Eingereicht", und genau
+    // EIN automatischer Rückruf wird nach 60s terminiert (siehe oben).
+    async function checkOne(index, url, isAutoRetry = false) {
+        clearPendingRetry(index);
         setBadgePending(index);
         const report = await callApi('check_url', { url });
         renderResult(index, report);
         if (stepChecked) stepChecked.classList.add('step-done');
+        if (report.status === 'submitted' && !isAutoRetry) {
+            scheduleAutoRetry(index, url);
+        }
         return report;
     }
 
