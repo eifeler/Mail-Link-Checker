@@ -247,10 +247,24 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // "Alle Links mit VT prüfen" - sequentiell, mit fixem 16s-Abstand
-    // (60s/4 + Puffer), damit das 4/Min-Limit bei mehreren Links nicht
-    // sofort anschlägt. Kein Countdown, keine Live-Anzeige - einfach nur
-    // ein kleiner Wartepuffer zwischen den Aufrufen.
+    // "Alle Links mit VT prüfen": 5s Abstand zwischen den Anfragen, alle 4
+    // Anfragen wird der Rest der Minute abgewartet (VT-Limit: 4/Min.) -
+    // Wartezeit wird live angezeigt statt stumm zu verstreichen.
+    const bulkWaitStatusEl = document.getElementById('bulkWaitStatus');
+
+    async function waitWithCountdown(ms, label) {
+        const until = Date.now() + ms;
+        while (true) {
+            const remaining = until - Date.now();
+            if (remaining <= 0) break;
+            if (bulkWaitStatusEl) {
+                bulkWaitStatusEl.textContent = `${label} ${Math.ceil(remaining / 1000)}s`;
+            }
+            await sleep(Math.min(remaining, 1000));
+        }
+        if (bulkWaitStatusEl) bulkWaitStatusEl.textContent = '';
+    }
+
     if (checkAllBtn) {
         checkAllBtn.addEventListener('click', async () => {
             if (API_KEY_MISSING || links.length === 0 || anyCheckRunning) return;
@@ -260,9 +274,26 @@ document.addEventListener('DOMContentLoaded', () => {
             checkAllBtn.textContent = 'Prüfung läuft …';
             if (progressBar) progressBar.classList.remove('hidden');
 
+            const MIN_GAP_MS = 5000;
+            const WINDOW_MS = 60000;
+            const MAX_PER_WINDOW = 4;
+            let windowStart = 0;
+            let windowCount = 0;
+
             let done = 0;
             for (let i = 0; i < links.length; i++) {
-                if (i > 0) await sleep(16000);
+                if (i > 0) {
+                    if (windowCount >= MAX_PER_WINDOW) {
+                        const waitMs = WINDOW_MS - (Date.now() - windowStart);
+                        if (waitMs > 0) await waitWithCountdown(waitMs, 'VirusTotal-Limit erreicht – weiter in');
+                        windowCount = 0;
+                    } else {
+                        await waitWithCountdown(MIN_GAP_MS, 'Nächster Link in');
+                    }
+                }
+                if (windowCount === 0) windowStart = Date.now();
+                windowCount++;
+
                 await checkOne(i, links[i]);
                 done++;
                 const pct = Math.round((done / links.length) * 100);
