@@ -142,6 +142,43 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     let anyCheckRunning = false;
+    /**
+     * Geteiltes VT-Zeitfenster (5s Mindestabstand, max. 4 Anfragen pro
+     * rollierender Minute) - EINE Quelle der Wahrheit auf Basis echter
+     * Zeitstempel, gemeinsam genutzt von Einzel-Klick, Sammel-Prüfung UND
+     * automatischem 60s-Rückruf. Zählt nie "neu los", egal welcher der
+     * drei Wege gerade einen Aufruf macht - alle lesen/schreiben dasselbe
+     * Array.
+     */
+    const VT_MIN_GAP_MS = 5000;
+    const VT_WINDOW_MS = 60000;
+    const VT_MAX_PER_WINDOW = 4;
+    let vtCallLog = []; // Zeitstempel der letzten VT-Aufrufe
+
+    async function waitForVtSlot(index) {
+        const badge = document.querySelector(`[data-badge="${index}"]`);
+
+        while (true) {
+            const now = Date.now();
+            vtCallLog = vtCallLog.filter((t) => now - t < VT_WINDOW_MS);
+
+            let waitMs = 0;
+            if (vtCallLog.length > 0) {
+                const sinceLast = now - vtCallLog[vtCallLog.length - 1];
+                if (sinceLast < VT_MIN_GAP_MS) waitMs = Math.max(waitMs, VT_MIN_GAP_MS - sinceLast);
+            }
+            if (vtCallLog.length >= VT_MAX_PER_WINDOW) {
+                waitMs = Math.max(waitMs, VT_WINDOW_MS - (now - vtCallLog[0]));
+            }
+
+            if (waitMs <= 0) break;
+            if (badge) badge.textContent = `VT: Warte ${Math.ceil(waitMs / 1000)}s (Limit) …`;
+            await sleep(Math.min(waitMs, 1000));
+        }
+
+        vtCallLog.push(Date.now());
+    }
+
     const pendingRetries = {}; // index -> {timeoutId, intervalId}
 
     function clearPendingRetry(index) {
@@ -194,11 +231,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Ein Klick = ein VT-Aufruf. Kein Polling, kein Warten auf ein
-    // "fertiges" Ergebnis - bei neuen Links kommt "Eingereicht", und genau
-    // EIN automatischer Rückruf wird nach 60s terminiert (siehe oben).
+    // Ein Klick = ein VT-Aufruf (nach Einhalten des geteilten Zeitfensters,
+    // siehe waitForVtSlot). Kein Polling, kein Warten auf ein "fertiges"
+    // Ergebnis - bei neuen Links kommt "Eingereicht", und genau EIN
+    // automatischer Rückruf wird nach 60s terminiert (siehe oben).
     async function checkOne(index, url, isAutoRetry = false) {
         clearPendingRetry(index);
+        await waitForVtSlot(index);
         setBadgePending(index);
         const report = await callApi('check_url', { url });
         renderResult(index, report);
@@ -247,24 +286,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // "Alle Links mit VT prüfen": 5s Abstand zwischen den Anfragen, alle 4
-    // Anfragen wird der Rest der Minute abgewartet (VT-Limit: 4/Min.) -
-    // Wartezeit wird live angezeigt statt stumm zu verstreichen.
-    const bulkWaitStatusEl = document.getElementById('bulkWaitStatus');
-
-    async function waitWithCountdown(ms, label) {
-        const until = Date.now() + ms;
-        while (true) {
-            const remaining = until - Date.now();
-            if (remaining <= 0) break;
-            if (bulkWaitStatusEl) {
-                bulkWaitStatusEl.textContent = `${label} ${Math.ceil(remaining / 1000)}s`;
-            }
-            await sleep(Math.min(remaining, 1000));
-        }
-        if (bulkWaitStatusEl) bulkWaitStatusEl.textContent = '';
-    }
-
+    // "Alle Links mit VT prüfen" - Pausen/Wartezeit übernimmt zentral
+    // waitForVtSlot() innerhalb von checkOne(), hier nur noch die Schleife.
     if (checkAllBtn) {
         checkAllBtn.addEventListener('click', async () => {
             if (API_KEY_MISSING || links.length === 0 || anyCheckRunning) return;
@@ -274,26 +297,8 @@ document.addEventListener('DOMContentLoaded', () => {
             checkAllBtn.textContent = 'Prüfung läuft …';
             if (progressBar) progressBar.classList.remove('hidden');
 
-            const MIN_GAP_MS = 5000;
-            const WINDOW_MS = 60000;
-            const MAX_PER_WINDOW = 4;
-            let windowStart = 0;
-            let windowCount = 0;
-
             let done = 0;
             for (let i = 0; i < links.length; i++) {
-                if (i > 0) {
-                    if (windowCount >= MAX_PER_WINDOW) {
-                        const waitMs = WINDOW_MS - (Date.now() - windowStart);
-                        if (waitMs > 0) await waitWithCountdown(waitMs, 'VirusTotal-Limit erreicht – weiter in');
-                        windowCount = 0;
-                    } else {
-                        await waitWithCountdown(MIN_GAP_MS, 'Nächster Link in');
-                    }
-                }
-                if (windowCount === 0) windowStart = Date.now();
-                windowCount++;
-
                 await checkOne(i, links[i]);
                 done++;
                 const pct = Math.round((done / links.length) * 100);

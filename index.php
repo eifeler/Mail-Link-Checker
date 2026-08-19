@@ -310,7 +310,6 @@ $token = csrf_token();
             <div id="progressFill" class="bg-accent h-2 rounded-full transition-all duration-300" style="width:0%"></div>
         </div>
         <p id="progressText" class="text-xs text-ink/50 mb-1"></p>
-        <p id="bulkWaitStatus" class="text-xs text-ink/40 mb-1"></p>
         <p class="text-xs text-ink/40 mb-3">Neu eingereichte Links werden nach ~60s einmal automatisch erneut geprüft. Falls dann immer noch nichts da ist: einfach nochmal auf "VT prüfen" klicken.</p>
 
         <ul class="space-y-2">
