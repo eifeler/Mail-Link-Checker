@@ -84,8 +84,13 @@ Nutzer), Generator wieder löschen.
   als eigenen, einzeln prüfbaren Link (dedupliziert) - auch ein
   Zwischen-Hop (z.B. ein kompromittierter Tracking-Dienst) kann bösartig
   sein, selbst wenn das Endziel unauffällig ist.
-- **Bild-URLs werden gefiltert** (z.B. Gmails eigene Emoji-Icons) - kein
-  Klick-Ziel, für den Anwendungsfall irrelevant.
+- **HTML-Formatierung bleibt nach der Extraktion erhalten**
+  (`includes/sanitizer.php`, Allowlist-Sanitizer statt Klartext-Reset).
+  Bewusst blockiert: `<img>` und CSS `url(...)` in `style` - ein
+  Sicherheits-Tool soll keine Remote-Ressourcen aus einer verdächtigen
+  Mail automatisch nachladen (Tracking-Pixel).
+- **Bild-URLs werden aus der Link-Liste gefiltert** (z.B. Gmails eigene
+  Emoji-Icons) - kein Klick-Ziel, für den Anwendungsfall irrelevant.
 - **Login-Schutz auf Webserver-Ebene** (Apache Basic Auth via
   `.htaccess`/`.htpasswd`) statt PHP-Loginformular - greift bevor
   überhaupt PHP ausgeführt wird. Siehe Setup-Abschnitt oben.
