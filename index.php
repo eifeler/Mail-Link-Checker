@@ -7,6 +7,7 @@ require __DIR__ . '/includes/rate_limit.php';
 require __DIR__ . '/includes/vt_api.php';
 require __DIR__ . '/includes/heuristics.php';
 require __DIR__ . '/includes/safe_browsing.php';
+require __DIR__ . '/includes/sanitizer.php';
 
 const MAX_LINKS = 25;
 
@@ -92,6 +93,7 @@ if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQU
 $links = $_SESSION['links'] ?? [];
 $mismatches = $_SESSION['mismatches'] ?? [];
 $emailContent = '';
+$emailContentIsHtml = false;
 $noLinks = false;
 $linksCapped = false;
 $formError = null;
@@ -109,7 +111,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $formError = 'Ungültiges Sicherheits-Token. Bitte Text erneut absenden.';
         } else {
             $emailContentRaw = (string)($_POST['email_content'] ?? '');
-            $emailContent = plain_text_preview($emailContentRaw); // nur fürs Redisplay
+            // Für die Wiederanzeige die Formatierung erhalten (sanitized
+            // HTML), damit die Mail nach dem Extrahieren nicht auf reinen
+            // Text zusammenfällt. Fällt nur auf Klartext zurück, falls
+            // ext-dom auf dem Server fehlt (siehe sanitizer.php).
+            if (class_exists('DOMDocument')) {
+                $emailContent = sanitize_html_for_display($emailContentRaw);
+                $emailContentIsHtml = true;
+            } else {
+                $emailContent = plain_text_preview($emailContentRaw);
+            }
             $found = extract_links($emailContentRaw);
             $mismatches = detect_link_mismatches($emailContentRaw);
             $_SESSION['mismatches'] = $mismatches;
@@ -256,8 +267,8 @@ $token = csrf_token();
                 id="editor"
                 contenteditable="true"
                 data-placeholder="Hier E-Mail-Inhalt einfügen (Strg+V) – HTML-Formatierung bleibt erhalten, damit auch versteckte Links in Buttons/Texten gefunden werden …"
-                class="placeholder-text w-full h-72 border border-hairline rounded-md p-4 font-mono text-sm leading-relaxed overflow-y-auto focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition"
-            ><?php echo htmlspecialchars($emailContent); ?></div>
+                class="placeholder-text w-full h-72 border border-hairline rounded-md p-4 text-sm leading-relaxed overflow-y-auto focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent transition"
+            ><?php echo $emailContentIsHtml ? $emailContent : htmlspecialchars($emailContent); ?></div>
             <div class="mt-4 flex items-center gap-3">
                 <button type="submit" name="extract"
                     class="px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 transition">
