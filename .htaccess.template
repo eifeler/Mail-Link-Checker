@@ -1,0 +1,26 @@
+# Basic-Auth-Login für das gesamte Tool - greift auf Apache-Ebene, BEVOR
+# irgendein PHP ausgeführt wird (also strenger als ein PHP-Loginformular).
+#
+# WICHTIG: AuthUserFile braucht den ABSOLUTEN Server-Pfad, keinen relativen.
+# Den echten Pfad ermitteln: siehe pfad_ermitteln.php (einmalig hochladen,
+# aufrufen, Pfad notieren, Datei wieder löschen) oder im All-Inkl KAS
+# Control Panel nachsehen.
+#
+# Setup: siehe README.md Abschnitt "Login-Schutz einrichten".
+
+AuthType Basic
+AuthName "Mail-Link-Checker"
+AuthUserFile /HIER/ABSOLUTEN/PFAD/EINTRAGEN/.htpasswd
+Require valid-user
+
+# .htpasswd (und .htaccess selbst) nie direkt per HTTP ausliefern,
+# unabhängig von obiger Auth - Defense in Depth.
+<Files ".ht*">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</Files>

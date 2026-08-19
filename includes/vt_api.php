@@ -2,16 +2,23 @@
 declare(strict_types=1);
 
 /**
- * Löst verschachtelte Redirect-/Tracking-Wrapper rekursiv bis zur
- * tatsächlichen Zieladresse auf. Deckt zwei verbreitete Muster ab:
+ * Löst verschachtelte Redirect-/Tracking-Wrapper rekursiv auf und gibt
+ * die GESAMTE Kette zurück (nicht nur das Endziel) - jede Stufe (Wrapper,
+ * Tracker, Endziel) soll einzeln prüfbar bleiben, weil auch ein
+ * Zwischen-Hop (z.B. ein kompromittierter Tracking-Dienst) bösartig sein
+ * kann, selbst wenn das finale Ziel unauffällig ist.
+ *
+ * Deckt zwei verbreitete Muster ab:
  *  - Ziel als Query-Parameter (z.B. Gmail: google.com/url?q=<ziel>&...)
  *  - Ziel urlencodiert im Pfad (typischer Klick-Tracker: /CL0/<ziel>/...)
  * Tiefenbegrenzung verhindert Endlosschleifen bei kaputten/zirkulären Links.
+ *
+ * @return string[] Kette von der äußeren URL bis zum aufgelösten Ziel
  */
-function unwrap_redirect(string $url, int $depth = 0): string
+function unwrap_redirect_chain(string $url, int $depth = 0): array
 {
     if ($depth >= 5) {
-        return $url;
+        return [$url];
     }
 
     $parts = parse_url($url);
@@ -24,7 +31,7 @@ function unwrap_redirect(string $url, int $depth = 0): string
                 && filter_var($value, FILTER_VALIDATE_URL)
                 && $value !== $url
             ) {
-                return unwrap_redirect($value, $depth + 1);
+                return array_merge([$url], unwrap_redirect_chain($value, $depth + 1));
             }
         }
     }
@@ -34,12 +41,12 @@ function unwrap_redirect(string $url, int $depth = 0): string
         if (preg_match('/https?:\/\/[^\s"\'<>]+/i', $decodedPath, $m)) {
             $inner = rtrim($m[0], ".,;:!?\"'<>");
             if ($inner !== $url && filter_var($inner, FILTER_VALIDATE_URL)) {
-                return unwrap_redirect($inner, $depth + 1);
+                return array_merge([$url], unwrap_redirect_chain($inner, $depth + 1));
             }
         }
     }
 
-    return $url;
+    return [$url];
 }
 
 /**
@@ -62,10 +69,10 @@ function is_image_url(string $url): bool
  * gescannt (Tags/Attribute inklusive) statt nur über den sichtbaren Text -
  * die URL in href="..." landet dabei ganz einfach als Teilstring im Fund.
  *
- * Gefundene Kandidaten werden zusätzlich durch unwrap_redirect() bis zur
- * tatsächlichen Zieladresse aufgelöst (Gmail-/Tracking-Wrapper entfernt,
- * verschachtelte Wrapper werden dadurch automatisch dedupliziert) und
- * Bild-URLs herausgefiltert (siehe is_image_url()).
+ * Verschachtelte Redirect-/Tracking-Wrapper werden über
+ * unwrap_redirect_chain() aufgelöst - JEDE Stufe der Kette (Wrapper bis
+ * Endziel) landet als eigener, einzeln prüfbarer Link in der Liste
+ * (dedupliziert). Bild-URLs werden herausgefiltert (siehe is_image_url()).
  *
  * @return string[]
  */
@@ -83,13 +90,11 @@ function extract_links(string $html): array
             continue;
         }
 
-        $link = unwrap_redirect($link);
-
-        if (is_image_url($link)) {
-            continue;
+        foreach (unwrap_redirect_chain($link) as $hop) {
+            if (!is_image_url($hop)) {
+                $finalLinks[] = $hop;
+            }
         }
-
-        $finalLinks[] = $link;
     }
 
     return array_values(array_unique($finalLinks));

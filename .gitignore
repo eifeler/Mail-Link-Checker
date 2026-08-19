@@ -1,5 +1,7 @@
 # Config / Secrets
 config/config.php
+.htpasswd
+.htaccess
 .env
 
 # PHP / Composer

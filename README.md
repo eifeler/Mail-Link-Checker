@@ -14,11 +14,42 @@ State lebt nur in der PHP-Session.
 3. Optional: `SAFE_BROWSING_API_KEY` eintragen (Google Cloud Console →
    Safe Browsing API aktivieren → API-Key erstellen). Ohne Key wird
    Safe Browsing einfach übersprungen, kein Fehler.
-4. Komplettes Verzeichnis per FTP hochladen.
+4. Komplettes Verzeichnis per FTP hochladen (**ohne `.htaccess`** - die
+   gibt es zunächst nur als `.htaccess.template`, siehe nächster
+   Abschnitt, sonst kommst du nicht mehr ans Tool).
 5. Voraussetzung: PHP-Extension `dom` muss aktiv sein (für die
    Link-Text-vs-Ziel-Prüfung). Auf gängigem Hosting Standard, aber nicht
    garantiert - fehlt sie, wird diese eine Zusatzprüfung automatisch
    übersprungen statt die Seite abstürzen zu lassen.
+6. Danach: Login-Schutz einrichten (nächster Abschnitt) - ohne den ist
+   das Tool für jeden erreichbar, der die URL kennt.
+
+## Login-Schutz einrichten (Basic Auth)
+
+Schützt das komplette Tool per Webserver-Login, **bevor** überhaupt PHP
+ausgeführt wird. Reihenfolge ist wichtig (Henne-Ei-Problem: ohne
+`.htpasswd` keine gültigen Zugangsdaten, aber `.htaccess` würde dir sonst
+sofort den Zugriff auf die Hilfsseiten dazu verwehren):
+
+1. `pfad_ermitteln.php` im Browser aufrufen (z.B.
+   `deine-domain.de/mail-link-checker/pfad_ermitteln.php`), den
+   angezeigten absoluten Pfad notieren.
+2. `htpasswd_generator.php` im Browser aufrufen, Nutzername + Passwort
+   eingeben, die erzeugte Zeile kopieren. Das Passwort geht dabei nur an
+   deinen eigenen Server, nirgendwo sonst hin.
+3. Eine Datei `.htpasswd` (per FTP-Texteditor) mit genau dieser Zeile
+   anlegen.
+4. `pfad_ermitteln.php` und `htpasswd_generator.php` per FTP löschen -
+   ein offen erreichbarer Passwort-Generator ist selbst ein Risiko.
+5. `.htaccess.template` in `.htaccess` umbenennen, darin
+   `/HIER/ABSOLUTEN/PFAD/EINTRAGEN/.htpasswd` durch den in Schritt 1
+   notierten Pfad ersetzen, hochladen.
+6. Testen: Seite in einem privaten/Inkognito-Fenster aufrufen - Browser
+   sollte jetzt nach Nutzername/Passwort fragen.
+
+Weiteren Nutzer hinzufügen: `htpasswd_generator.php` kurzzeitig wieder
+hochladen, neue Zeile erzeugen, in `.htpasswd` ergänzen (eine Zeile pro
+Nutzer), Generator wieder löschen.
 
 ## Prüf-Ebenen
 
@@ -46,13 +77,18 @@ State lebt nur in der PHP-Session.
   rollierendem 60s-Fenster proaktiv an VirusTotals 4/Min.-Limit (5s
   Mindestabstand zwischen Anfragen, danach sichtbarer Countdown statt
   Fehlermeldung).
-- **Redirect-Ketten werden aufgelöst.** Mail-Provider (Gmail) und
-  Newsletter-Tools wrappen Links oft mehrfach ineinander
+- **Redirect-Ketten werden vollständig einzeln geprüft.** Mail-Provider
+  (Gmail) und Newsletter-Tools wrappen Links oft mehrfach ineinander
   (`google.com/url?q=...` → Klick-Tracker → echtes Ziel).
-  `unwrap_redirect()` löst das rekursiv bis zur tatsächlichen
-  Zieladresse auf - verhindert doppelte Einträge für denselben Link.
+  `unwrap_redirect_chain()` löst das rekursiv auf und behält JEDE Stufe
+  als eigenen, einzeln prüfbaren Link (dedupliziert) - auch ein
+  Zwischen-Hop (z.B. ein kompromittierter Tracking-Dienst) kann bösartig
+  sein, selbst wenn das Endziel unauffällig ist.
 - **Bild-URLs werden gefiltert** (z.B. Gmails eigene Emoji-Icons) - kein
   Klick-Ziel, für den Anwendungsfall irrelevant.
+- **Login-Schutz auf Webserver-Ebene** (Apache Basic Auth via
+  `.htaccess`/`.htpasswd`) statt PHP-Loginformular - greift bevor
+  überhaupt PHP ausgeführt wird. Siehe Setup-Abschnitt oben.
 - **CSRF-Token** auf Formular und allen AJAX-Endpunkten (`includes/csrf.php`).
 - **Session-basiertes Rate-Limiting** serverseitig zusätzlich zum
   Client-Throttle (Defense in Depth).
