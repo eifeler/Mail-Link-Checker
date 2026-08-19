@@ -15,59 +15,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-    // Zeit-Gate für ALLE VT-Aufrufe (Submit + Poll, Einzel- wie Sammel-
-    // Prüfung), transparent mit Live-Zähler statt pauschaler Bremse:
-    //  - Mindestabstand 5s zwischen zwei Anfragen
-    //  - rollierendes 60s-Fenster: max. 4 Anfragen (VT Free-Tier-Limit)
-    // Ist das Fenster ausgeschöpft, wird gewartet bis der älteste Eintrag
-    // aus dem Fenster fällt - der Rest-Countdown wird live angezeigt.
-    const MIN_GAP_MS = 5000;
-    const MAX_PER_WINDOW = 4;
-    const WINDOW_MS = 60000;
-    let callTimestamps = [];
-    const rateStatusEl = document.getElementById('rateLimitStatus');
-
-    function renderRateStatus() {
-        if (!rateStatusEl) return;
-        const now = Date.now();
-        callTimestamps = callTimestamps.filter((t) => now - t < WINDOW_MS);
-        const remaining = Math.max(0, MAX_PER_WINDOW - callTimestamps.length);
-        if (remaining > 0) {
-            rateStatusEl.textContent = `VirusTotal-Anfragen verfügbar: ${remaining}/${MAX_PER_WINDOW}`;
-            rateStatusEl.classList.remove('text-warn');
-        } else {
-            const waitS = Math.max(0, Math.ceil((WINDOW_MS - (now - callTimestamps[0])) / 1000));
-            rateStatusEl.textContent = `VirusTotal-Limit erreicht – nächste Anfrage in ${waitS}s`;
-            rateStatusEl.classList.add('text-warn');
-        }
-    }
-    setInterval(renderRateStatus, 1000);
-    renderRateStatus();
-
-    async function throttledApiCall(action, params) {
-        while (true) {
-            const now = Date.now();
-            callTimestamps = callTimestamps.filter((t) => now - t < WINDOW_MS);
-
-            let waitMs = 0;
-            if (callTimestamps.length > 0) {
-                const sinceLast = now - callTimestamps[callTimestamps.length - 1];
-                if (sinceLast < MIN_GAP_MS) waitMs = Math.max(waitMs, MIN_GAP_MS - sinceLast);
-            }
-            if (callTimestamps.length >= MAX_PER_WINDOW) {
-                waitMs = Math.max(waitMs, WINDOW_MS - (now - callTimestamps[0]));
-            }
-
-            if (waitMs <= 0) break;
-            renderRateStatus();
-            await sleep(Math.min(waitMs, 1000));
-        }
-
-        callTimestamps.push(Date.now());
-        renderRateStatus();
-        return callApi(action, params);
-    }
-
     // Überträgt das rohe HTML des contenteditable-Editors ins Formularfeld.
     // Wichtig: innerHTML (nicht innerText!) - sonst gehen Links verloren,
     // die nur als href hinter einem Text wie "Hier klicken" stecken.
@@ -99,29 +46,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return res.json();
     }
 
-    /**
-     * Prüft einen Link vollständig: einreichen, dann pollen bis
-     * "completed". Das Tempo bestimmt throttledApiCall() (VT-Limit) -
-     * hier wird nicht zusätzlich gewartet, um das Limit nicht doppelt
-     * "aufzubrauchen". onAttempt(n, max) informiert die UI über jeden
-     * einzelnen Versuch, damit sichtbar bleibt, dass es weiterläuft und
-     * nicht hängt (bei 4 Anfragen/Min. kann das bei einem einzelnen Link
-     * durchaus 1-3 Minuten dauern, wenn VT selbst lange braucht).
-     */
-    async function checkLink(url, { maxPolls = 20, onAttempt } = {}) {
-        if (onAttempt) onAttempt(1, maxPolls + 1);
-        const first = await throttledApiCall('submit_url', { url });
-        if (first.status !== 'pending') return first;
-
-        const analysisId = first.analysis_id;
-        for (let i = 0; i < maxPolls; i++) {
-            if (onAttempt) onAttempt(i + 2, maxPolls + 1);
-            const res = await throttledApiCall('check_status', { analysis_id: analysisId });
-            if (res.status === 'completed' || res.status === 'error') return res;
-        }
-        return { status: 'error', error: 'Zeitüberschreitung – VirusTotal hat auch nach mehreren Minuten nicht geantwortet.' };
-    }
-
     function verdictFromStats(stats) {
         const malicious = stats.malicious || 0;
         const suspicious = stats.suspicious || 0;
@@ -142,6 +66,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 detail.innerHTML = `<p class="text-danger text-sm">${escapeHtml(report.error || 'Unbekannter Fehler')}</p>`;
                 detail.classList.remove('hidden');
             }
+            return;
+        }
+
+        if (report.status === 'submitted') {
+            badge.textContent = 'VT: Eingereicht – in ~1 Min. erneut prüfen';
+            badge.className = 'verdict-badge bg-blue-500/10 text-blue-700 border-blue-500/30';
             return;
         }
 
@@ -167,18 +97,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function setBadgePending(index, attempt, max) {
+    function setBadgePending(index) {
         const badge = document.querySelector(`[data-badge="${index}"]`);
         if (badge) {
-            badge.textContent = attempt ? `VT: Prüfe … (${attempt}/${max})` : 'VT: Prüfe …';
+            badge.textContent = 'VT: Prüfe …';
             badge.className = 'verdict-badge bg-hairline text-ink/60 border-hairline';
         }
     }
 
     /**
      * Safe Browsing: EIN Request für ALLE Links (Batch-Endpoint), läuft
-     * automatisch beim Laden - synchron, kein Polling, eigenes Kontingent,
-     * daher unabhängig vom VT-Zeit-Gate.
+     * automatisch beim Laden - synchron, eigenes Kontingent.
      */
     async function runSafeBrowsingCheck() {
         if (!SAFE_BROWSING_ENABLED || links.length === 0) return;
@@ -221,9 +150,11 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    async function checkOne(index, url, onAttempt) {
+    // Ein Klick = ein VT-Aufruf. Kein Polling, kein Warten auf ein
+    // "fertiges" Ergebnis - bei neuen Links kommt "Eingereicht", fertig.
+    async function checkOne(index, url) {
         setBadgePending(index);
-        const report = await checkLink(url, { onAttempt: (a, m) => setBadgePending(index, a, m) });
+        const report = await callApi('check_url', { url });
         renderResult(index, report);
         if (stepChecked) stepChecked.classList.add('step-done');
         return report;
@@ -267,7 +198,10 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // "Alle Links mit VT prüfen" - sequentiell, respektiert das 4/Min-Limit
+    // "Alle Links mit VT prüfen" - sequentiell, mit fixem 16s-Abstand
+    // (60s/4 + Puffer), damit das 4/Min-Limit bei mehreren Links nicht
+    // sofort anschlägt. Kein Countdown, keine Live-Anzeige - einfach nur
+    // ein kleiner Wartepuffer zwischen den Aufrufen.
     if (checkAllBtn) {
         checkAllBtn.addEventListener('click', async () => {
             if (API_KEY_MISSING || links.length === 0 || anyCheckRunning) return;
@@ -279,6 +213,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             let done = 0;
             for (let i = 0; i < links.length; i++) {
+                if (i > 0) await sleep(16000);
                 await checkOne(i, links[i]);
                 done++;
                 const pct = Math.round((done / links.length) * 100);

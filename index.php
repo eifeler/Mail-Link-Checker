@@ -20,8 +20,10 @@ if (is_file($configFile)) {
 }
 
 // ---------------------------------------------------------------------
-// AJAX-Endpunkte (submit_url / check_status). Jeder Aufruf ist kurz und
-// blockiert nie länger als ein einzelner cURL-Timeout (15s).
+// AJAX-Endpunkte. check_url macht GENAU EINEN VT-Aufruf: gibt es schon
+// einen Report, kommt der sofort zurück. Sonst wird die URL eingereicht
+// und der Nutzer klickt später einfach nochmal - kein Server-seitiges
+// Warten/Polling, bleibt bewusst einfach.
 // ---------------------------------------------------------------------
 if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
     header('Content-Type: application/json; charset=utf-8');
@@ -56,32 +58,27 @@ if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQU
         exit;
     }
 
-    if ($action === 'submit_url') {
+    if ($action === 'check_url') {
         $url = (string)($_POST['url'] ?? '');
         if (!filter_var($url, FILTER_VALIDATE_URL) || !preg_match('/^https?:\/\//i', $url)) {
             echo json_encode(['status' => 'error', 'error' => 'Ungültige URL.']);
             exit;
         }
         if (!vt_rate_limit_ok()) {
-            echo json_encode(['status' => 'error', 'error' => 'VirusTotal-Limit erreicht (4/Min.). Bitte kurz warten.']);
+            echo json_encode(['status' => 'error', 'error' => 'VirusTotal-Limit erreicht (4/Min.). Bitte kurz warten und nochmal klicken.']);
             exit;
         }
         $existing = vt_existing_report($url, $apiKey);
-        echo json_encode($existing ?? vt_submit_url($url, $apiKey));
-        exit;
-    }
-
-    if ($action === 'check_status') {
-        $analysisId = (string)($_POST['analysis_id'] ?? '');
-        if ($analysisId === '') {
-            echo json_encode(['status' => 'error', 'error' => 'Keine Analyse-ID übergeben.']);
+        if ($existing !== null) {
+            echo json_encode($existing);
             exit;
         }
-        if (!vt_rate_limit_ok()) {
-            echo json_encode(['status' => 'error', 'error' => 'VirusTotal-Limit erreicht (4/Min.). Bitte kurz warten.']);
+        $submitted = vt_submit_url($url, $apiKey);
+        if ($submitted['status'] === 'pending') {
+            echo json_encode(['status' => 'submitted']);
             exit;
         }
-        echo json_encode(vt_check_analysis($analysisId, $apiKey));
+        echo json_encode($submitted); // status=error
         exit;
     }
 
@@ -302,8 +299,7 @@ $token = csrf_token();
             <div id="progressFill" class="bg-accent h-2 rounded-full transition-all duration-300" style="width:0%"></div>
         </div>
         <p id="progressText" class="text-xs text-ink/50 mb-1"></p>
-        <p id="rateLimitStatus" class="text-xs text-ink/40 mb-1"></p>
-        <p class="text-xs text-ink/40 mb-3">Bei wenigen Links kann eine einzelne Prüfung wegen des VirusTotal-Limits real 1-3 Minuten dauern – der Badge-Text zeigt den laufenden Versuch (z. B. "3/21"), das läuft nicht fest.</p>
+        <p class="text-xs text-ink/40 mb-3">Neu eingereichte Links: VirusTotal braucht ca. 1 Minute, dann einfach nochmal auf "VT prüfen" klicken.</p>
 
         <ul class="space-y-2">
             <?php foreach ($links as $i => $l):

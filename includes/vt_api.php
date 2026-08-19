@@ -171,8 +171,8 @@ function vt_existing_report(string $url, string $apiKey): ?array
 }
 
 /**
- * Reicht eine URL zur Analyse ein. Blockiert NICHT auf das Ergebnis -
- * gibt nur die Analyse-ID zurück, mit der der Client anschließend pollt.
+ * Reicht eine URL zur Analyse ein. Kein Warten auf das Ergebnis - der
+ * Nutzer klickt später einfach nochmal, dann greift vt_existing_report().
  */
 function vt_submit_url(string $url, string $apiKey): array
 {
@@ -185,30 +185,4 @@ function vt_submit_url(string $url, string $apiKey): array
         return ['status' => 'error', 'error' => "Einreichung fehlgeschlagen: $msg"];
     }
     return ['status' => 'pending', 'analysis_id' => $res['json']['data']['id']];
-}
-
-/**
- * Fragt den Status einer laufenden Analyse EINMAL ab (kein Sleep-Loop
- * im Server-Prozess - das übernimmt der Client per Intervall-Polling).
- */
-function vt_check_analysis(string $analysisId, string $apiKey): array
-{
-    $res = vt_request('GET', 'analyses/' . $analysisId, $apiKey);
-    if (!$res['ok']) {
-        return ['status' => 'error', 'error' => $res['error']];
-    }
-    if ($res['status'] !== 200) {
-        $msg = $res['json']['error']['message'] ?? "HTTP {$res['status']}";
-        return ['status' => 'error', 'error' => "Status-Abfrage fehlgeschlagen: $msg"];
-    }
-
-    $attr = $res['json']['data']['attributes'] ?? [];
-    if (($attr['status'] ?? '') === 'completed') {
-        return [
-            'status' => 'completed',
-            'stats' => $attr['stats'] ?? [],
-            'results' => $attr['results'] ?? [],
-        ];
-    }
-    return ['status' => 'pending'];
 }
