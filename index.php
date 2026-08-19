@@ -263,7 +263,7 @@ $token = csrf_token();
             ><?php echo htmlspecialchars($emailContent); ?></div>
             <div class="mt-4 flex items-center gap-3">
                 <button type="submit" name="extract"
-                    class="px-5 py-2.5 bg-accent text-white text-sm font-medium rounded-md hover:bg-accent/90 focus:outline-none focus:ring-2 focus:ring-accent/40 transition">
+                    class="px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 transition">
                     Links extrahieren
                 </button>
                 <?php if (!empty($links)): ?>
@@ -288,11 +288,11 @@ $token = csrf_token();
             <h2 class="text-sm font-semibold text-ink/70 uppercase tracking-wide">Gefundene Links (<?php echo count($links); ?>)</h2>
             <div class="flex gap-2">
                 <button type="button" id="copyAllBtn"
-                    class="px-3 py-1.5 border border-hairline text-xs font-medium rounded-md hover:bg-paper transition">
+                    class="px-3 py-1.5 bg-gray-500 text-white text-xs font-medium rounded-md hover:bg-gray-600 transition">
                     Alle kopieren
                 </button>
                 <button type="button" id="checkAllBtn" <?php echo empty($apiKey) ? 'disabled' : ''; ?>
-                    class="px-3 py-1.5 bg-accent text-white text-xs font-medium rounded-md hover:bg-accent/90 disabled:opacity-40 disabled:cursor-not-allowed transition">
+                    class="px-3 py-1.5 bg-red-600 text-white text-xs font-medium rounded-md hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition">
                     Alle Links mit VirusTotal prüfen
                 </button>
             </div>
@@ -334,12 +334,12 @@ $token = csrf_token();
                 </div>
                 <?php endif; ?>
                 <div class="flex flex-wrap gap-2 mt-2 text-xs">
-                    <button type="button" class="copy-btn px-2.5 py-1 border border-hairline rounded hover:bg-paper transition" data-url="<?php echo htmlspecialchars($l); ?>">Kopieren</button>
-                    <button type="button" class="check-btn px-2.5 py-1 bg-accent/10 text-accent border border-accent/30 rounded hover:bg-accent/20 transition" data-index="<?php echo $i; ?>" data-url="<?php echo htmlspecialchars($l); ?>" <?php echo empty($apiKey) ? 'disabled' : ''; ?>>VT prüfen</button>
-                    <a href="<?php echo htmlspecialchars($vtGui); ?>" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 border border-hairline rounded hover:bg-paper transition">VT-Web</a>
-                    <a href="<?php echo htmlspecialchars($urlvoidUrl); ?>" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 border border-hairline rounded hover:bg-paper transition">URLvoid</a>
-                    <a href="<?php echo htmlspecialchars($kasperskyUrl); ?>" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 border border-hairline rounded hover:bg-paper transition">Kaspersky</a>
-                    <a href="<?php echo htmlspecialchars($googleSbUrl); ?>" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 border border-hairline rounded hover:bg-paper transition">Google</a>
+                    <button type="button" class="copy-btn px-2.5 py-1 bg-gray-500 text-white rounded hover:bg-gray-600 transition" data-url="<?php echo htmlspecialchars($l); ?>">Kopieren</button>
+                    <button type="button" class="check-btn px-2.5 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition" data-index="<?php echo $i; ?>" data-url="<?php echo htmlspecialchars($l); ?>" <?php echo empty($apiKey) ? 'disabled' : ''; ?>>VT prüfen</button>
+                    <a href="<?php echo htmlspecialchars($vtGui); ?>" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 bg-sky-500 text-white rounded hover:bg-sky-600 transition">VT-Web</a>
+                    <a href="<?php echo htmlspecialchars($urlvoidUrl); ?>" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 transition">URLvoid</a>
+                    <a href="<?php echo htmlspecialchars($kasperskyUrl); ?>" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 bg-green-700 text-white rounded hover:bg-green-800 transition">Kaspersky</a>
+                    <a href="<?php echo htmlspecialchars($googleSbUrl); ?>" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 bg-yellow-600 text-white rounded hover:bg-yellow-700 transition">Google</a>
                 </div>
                 <div class="hidden" data-detail="<?php echo $i; ?>"></div>
             </li>
@@ -352,7 +352,7 @@ $token = csrf_token();
 
     <form method="post" action="" class="mt-8">
         <button type="submit" name="reset_all"
-            class="px-4 py-2 text-sm border border-hairline rounded-md text-ink/60 hover:bg-white transition">
+            class="px-4 py-2 text-sm bg-gray-700 text-white rounded-md hover:bg-gray-800 transition">
             Alles zurücksetzen
         </button>
     </form>
