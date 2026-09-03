@@ -167,7 +167,14 @@ function vt_existing_report(string $url, string $apiKey): ?array
             'results' => $attr['last_analysis_results'] ?? [],
         ];
     }
-    return null;
+    if ($res['status'] === 404) {
+        return null; // eindeutig: kein bestehender Report -> vt_submit_url() übernimmt
+    }
+    // Alles andere (400/401/403/414/429/5xx/...) ist ein ECHTER Fehler,
+    // kein "einfach noch nicht gescannt" - sonst wird ein echtes Problem
+    // (z.B. abgelehnte Anfrage) fälschlich als "Eingereicht" angezeigt.
+    $msg = $res['json']['error']['message'] ?? "HTTP {$res['status']}";
+    return ['status' => 'error', 'error' => "Report-Abfrage fehlgeschlagen: $msg"];
 }
 
 /**
