@@ -191,24 +191,29 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /**
-     * EIN automatischer Rückruf - technisch identisch zu "Nutzer klickt
-     * manuell nochmal", nur automatisiert. Bewusst kein wiederholtes
-     * Polling: falls VT dann immer noch nicht fertig ist, bleibt es bei
-     * "Eingereicht" und der Nutzer klickt bei Bedarf selbst nochmal -
-     * sonst wären wir wieder bei der Komplexität, die wir rausgeworfen haben.
-     *
-     * 20s statt der ursprünglichen 60s: VT ist bei einfachen URLs oft
-     * schon nach wenigen Sekunden fertig, 60s war unnötig konservativ.
+     * Automatischer Rückruf-Zyklus - technisch identisch zu "Nutzer klickt
+     * manuell nochmal", nur automatisiert und mehrfach (begrenzt). Prüft
+     * alle 10s nach, bis VT tatsächlich fertig ist ODER das Limit von
+     * MAX_AUTO_RETRIES erreicht ist (~50s automatisches Nachfragen) -
+     * danach klar sagen, dass kein weiterer Versuch mehr folgt, statt
+     * endlos im Hintergrund weiterzulaufen.
      */
-    function scheduleAutoRetry(index, url) {
+    const AUTO_RETRY_INTERVAL_MS = 10000;
+    const MAX_AUTO_RETRIES = 5;
+
+    function scheduleAutoRetry(index, url, attempt) {
         clearPendingRetry(index);
-        const RETRY_MS = 20000;
-        const startedAt = Date.now();
         const badge = document.querySelector(`[data-badge="${index}"]`);
 
+        if (attempt > MAX_AUTO_RETRIES) {
+            if (badge) badge.textContent = 'VT: Neu bei VirusTotal – Analyse läuft noch, bitte später erneut klicken';
+            return;
+        }
+
+        const startedAt = Date.now();
         const tick = () => {
             if (!badge) return;
-            const remaining = Math.max(0, Math.ceil((RETRY_MS - (Date.now() - startedAt)) / 1000));
+            const remaining = Math.max(0, Math.ceil((AUTO_RETRY_INTERVAL_MS - (Date.now() - startedAt)) / 1000));
             badge.textContent = `VT: Neu bei VirusTotal – Rückmeldung folgt (erneut in ${remaining}s)`;
         };
         tick();
@@ -216,18 +221,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const timeoutId = setTimeout(async () => {
             clearPendingRetry(index);
-            if (anyCheckRunning) return; // andere Prüfung läuft - Nutzer kann jederzeit manuell klicken
+            if (anyCheckRunning) {
+                // Andere Prüfung blockiert gerade - gleich nochmal versuchen,
+                // statt den Versuch stillschweigend verfallen zu lassen.
+                scheduleAutoRetry(index, url, attempt);
+                return;
+            }
             anyCheckRunning = true;
             setAllCheckButtonsDisabled(true);
-            const report = await checkOne(index, url, true);
-            if (report.status === 'submitted' && badge) {
-                // Auch nach dem Auto-Rückruf noch keine Rückmeldung von VT da -
-                // kein weiterer automatischer Versuch mehr, klar sagen warum.
-                badge.textContent = 'VT: Neu bei VirusTotal – Analyse läuft noch, bitte später erneut klicken';
-            }
+            await checkOne(index, url, attempt);
             anyCheckRunning = false;
             setAllCheckButtonsDisabled(false);
-        }, RETRY_MS);
+        }, AUTO_RETRY_INTERVAL_MS);
 
         pendingRetries[index] = { timeoutId, intervalId };
     }
@@ -240,18 +245,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Ein Klick = ein VT-Aufruf (nach Einhalten des geteilten Zeitfensters,
-    // siehe waitForVtSlot). Kein Polling, kein Warten auf ein "fertiges"
-    // Ergebnis - bei neuen Links kommt "Eingereicht", und genau EIN
-    // automatischer Rückruf wird nach 60s terminiert (siehe oben).
-    async function checkOne(index, url, isAutoRetry = false) {
+    // Ein Klick = ein VT-Aufruf (nach Einhalten des geteilten Zeitfensters,
+    // siehe waitForVtSlot). Kommt ein neuer Link als "Eingereicht" zurück,
+    // übernimmt scheduleAutoRetry() das automatische, begrenzte Nachfragen.
+    async function checkOne(index, url, retryAttempt = 0) {
         clearPendingRetry(index);
         await waitForVtSlot(index);
         setBadgePending(index);
         const report = await callApi('check_url', { url });
         renderResult(index, report);
         if (stepChecked) stepChecked.classList.add('step-done');
-        if (report.status === 'submitted' && !isAutoRetry) {
-            scheduleAutoRetry(index, url);
+        if (report.status === 'submitted') {
+            scheduleAutoRetry(index, url, retryAttempt + 1);
         }
         return report;
     }
