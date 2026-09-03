@@ -70,7 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (report.status === 'submitted') {
-            badge.textContent = 'VT: Eingereicht …';
+            badge.textContent = 'VT: Neu bei VirusTotal …';
             badge.className = 'verdict-badge bg-blue-500/10 text-blue-700 border-blue-500/30';
             return;
         }
@@ -209,7 +209,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const tick = () => {
             if (!badge) return;
             const remaining = Math.max(0, Math.ceil((RETRY_MS - (Date.now() - startedAt)) / 1000));
-            badge.textContent = `VT: Eingereicht – erneute Prüfung in ${remaining}s`;
+            badge.textContent = `VT: Neu bei VirusTotal – Rückmeldung folgt (erneut in ${remaining}s)`;
         };
         tick();
         const intervalId = setInterval(tick, 1000);
@@ -219,7 +219,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (anyCheckRunning) return; // andere Prüfung läuft - Nutzer kann jederzeit manuell klicken
             anyCheckRunning = true;
             setAllCheckButtonsDisabled(true);
-            await checkOne(index, url, true);
+            const report = await checkOne(index, url, true);
+            if (report.status === 'submitted' && badge) {
+                // Auch nach dem Auto-Rückruf noch keine Rückmeldung von VT da -
+                // kein weiterer automatischer Versuch mehr, klar sagen warum.
+                badge.textContent = 'VT: Neu bei VirusTotal – Analyse läuft noch, bitte später erneut klicken';
+            }
             anyCheckRunning = false;
             setAllCheckButtonsDisabled(false);
         }, RETRY_MS);
