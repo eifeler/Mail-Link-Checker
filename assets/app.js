@@ -191,15 +191,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /**
-     * EIN automatischer Rückruf nach 60s - technisch identisch zu "Nutzer
-     * klickt manuell nochmal", nur automatisiert. Bewusst kein wiederholtes
+     * EIN automatischer Rückruf - technisch identisch zu "Nutzer klickt
+     * manuell nochmal", nur automatisiert. Bewusst kein wiederholtes
      * Polling: falls VT dann immer noch nicht fertig ist, bleibt es bei
      * "Eingereicht" und der Nutzer klickt bei Bedarf selbst nochmal -
      * sonst wären wir wieder bei der Komplexität, die wir rausgeworfen haben.
+     *
+     * 20s statt der ursprünglichen 60s: VT ist bei einfachen URLs oft
+     * schon nach wenigen Sekunden fertig, 60s war unnötig konservativ.
      */
     function scheduleAutoRetry(index, url) {
         clearPendingRetry(index);
-        const RETRY_MS = 60000;
+        const RETRY_MS = 20000;
         const startedAt = Date.now();
         const badge = document.querySelector(`[data-badge="${index}"]`);
 
