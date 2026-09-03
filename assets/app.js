@@ -191,15 +191,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /**
-     * Automatischer Rückruf-Zyklus - technisch identisch zu "Nutzer klickt
-     * manuell nochmal", nur automatisiert und mehrfach (begrenzt). Prüft
-     * alle 10s nach, bis VT tatsächlich fertig ist ODER das Limit von
-     * MAX_AUTO_RETRIES erreicht ist (~50s automatisches Nachfragen) -
-     * danach klar sagen, dass kein weiterer Versuch mehr folgt, statt
-     * endlos im Hintergrund weiterzulaufen.
+     * Automatischer Rückruf - EINE Nachfrage nach 12s, technisch identisch
+     * zu "Nutzer klickt manuell nochmal". Bewusst nur ein Versuch (nicht
+     * mehrfach), da jeder Rückruf echtes VT-Kontingent verbraucht (4/Min.
+     * geteilt über alle Links) - mehr automatische Versuche würden bei
+     * mehreren gleichzeitig wartenden Links unnötig Slots blockieren.
      */
-    const AUTO_RETRY_INTERVAL_MS = 10000;
-    const MAX_AUTO_RETRIES = 5;
+    const AUTO_RETRY_INTERVAL_MS = 12000;
+    const MAX_AUTO_RETRIES = 1;
 
     function scheduleAutoRetry(index, url, attempt) {
         clearPendingRetry(index);

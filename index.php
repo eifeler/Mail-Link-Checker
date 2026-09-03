@@ -310,7 +310,7 @@ $token = csrf_token();
             <div id="progressFill" class="bg-accent h-2 rounded-full transition-all duration-300" style="width:0%"></div>
         </div>
         <p id="progressText" class="text-xs text-ink/50 mb-1"></p>
-        <p class="text-xs text-ink/40 mb-3">Links, die VirusTotal noch nie gesehen hat, brauchen etwas Zeit für die Analyse - das Tool fragt automatisch alle 10s nach (bis zu 5x), bis ein Ergebnis da ist. Falls dann immer noch nichts da ist: einfach nochmal auf "VT prüfen" klicken.</p>
+        <p class="text-xs text-ink/40 mb-3">Links, die VirusTotal noch nie gesehen hat, brauchen etwas Zeit für die Analyse - das Tool fragt nach 12s einmal automatisch nach. Falls dann immer noch nichts da ist: einfach nochmal auf "VT prüfen" klicken.</p>
 
         <ul class="space-y-2">
             <?php foreach ($links as $i => $l):
